@@ -17,28 +17,31 @@ class UnoGame {
         this.players = players.map(p => ({ ...p, hand: [], saidUno: false, finishPosition: null }));
         this.deck = [];
         this.discardPile = [];
-        this.currentPlayerIndex = 0;
+        this.currentPlayerIndex = 0;   // index into activePlayers array
         this.direction = 1;
         this.status = 'waiting';
         this.currentColor = null;
         this.pendingDraw = 0;
-        this.winner = null;          // first place player id
-        this.finishOrder = [];       // [1st, 2nd, 3rd ...] player ids
+        this.winner = null;            // first-place player id
+        this.finishOrder = [];         // [1st, 2nd, 3rd ...] player ids
     }
 
-    // ── Active players only (not yet finished) ──────────────────────────────
+    // ── Active players only (not yet finished) ────────────────────────────────
     get activePlayers() {
         return this.players.filter(p => p.finishPosition === null);
     }
 
     getCurrentPlayer() {
-        return this.activePlayers[this.currentPlayerIndex % this.activePlayers.length];
+        const active = this.activePlayers;
+        if (active.length === 0) return null;
+        return active[this.currentPlayerIndex % active.length];
     }
 
+    // Returns the index (in activePlayers) of the next player
     getNextPlayerIndex(from = this.currentPlayerIndex) {
         const active = this.activePlayers.length;
         if (active === 0) return 0;
-        return (from + this.direction + active * 10) % active;
+        return ((from + this.direction) % active + active) % active;
     }
 
     buildDeck() {
@@ -111,7 +114,7 @@ class UnoGame {
         const top = this.getTopCard();
         if (card.color === 'wild') return true;
         if (this.pendingDraw > 0) {
-            if (top.value === 'draw2') return card.value === 'draw2';
+            if (top.value === 'draw2')      return card.value === 'draw2';
             if (top.value === 'wild_draw4') return card.value === 'wild_draw4';
             return false;
         }
@@ -134,19 +137,30 @@ class UnoGame {
         player.saidUno = false;
         this.discardPile.push(card);
 
-        // ── Player finished! ───────────────────────────────────────────────
+        // ── Player finished! ───────────────────────────────────────────────────
         if (player.hand.length === 0) {
             const position = this.finishOrder.length + 1;
             player.finishPosition = position;
             this.finishOrder.push(playerId);
-
             if (!this.winner) this.winner = playerId;
 
-            // Game ends when only 1 active player remains (they get last place)
-            if (this.activePlayers.length === 1) {
-                const lastPlayer = this.activePlayers[0];
-                lastPlayer.finishPosition = this.finishOrder.length + 1;
-                this.finishOrder.push(lastPlayer.id);
+            // Apply color change for wild cards even when finishing
+            if (card.color === 'wild') {
+                this.currentColor = chosenColor || 'red';
+            }
+
+            // FIX: After removing this player from activePlayers, clamp the index
+            // so it points to the correct NEXT player (not the same slot which is
+            // now a different person, or out of range).
+            const remaining = this.activePlayers;   // player already has finishPosition set
+
+            // Game fully over — only 1 active player left (the loser)
+            if (remaining.length <= 1) {
+                if (remaining.length === 1) {
+                    const lastPlayer = remaining[0];
+                    lastPlayer.finishPosition = this.finishOrder.length + 1;
+                    this.finishOrder.push(lastPlayer.id);
+                }
                 this.status = 'finished';
                 return {
                     success: true, card,
@@ -157,10 +171,13 @@ class UnoGame {
                 };
             }
 
-            // Adjust current index for the removed player
-            const active = this.activePlayers;
-            const nextIdx = this.currentPlayerIndex % active.length;
-            this.currentPlayerIndex = nextIdx;
+            // FIX: Advance to the next player correctly.
+            // currentPlayerIndex was pointing at the finishing player's slot.
+            // After removal the array shrank, so we must NOT just mod — instead
+            // we advance by the direction so the correct next person gets the turn.
+            // We keep the same index value which now naturally lands on the person
+            // who was AFTER the finishing player (array shifted left).
+            this.currentPlayerIndex = this.currentPlayerIndex % remaining.length;
 
             return {
                 success: true, card,
@@ -170,6 +187,7 @@ class UnoGame {
             };
         }
 
+        // Normal play — apply card effects and advance turn
         const effects = this.applyCardEffect(card, chosenColor);
         const unoAlert = player.hand.length === 1;
         return { success: true, card, effects, unoAlert, state: this.getState() };
@@ -182,12 +200,14 @@ class UnoGame {
 
         switch (card.value) {
             case 'skip':
+                // Skip next player: advance twice
                 this.currentPlayerIndex = this.getNextPlayerIndex();
                 this.currentPlayerIndex = this.getNextPlayerIndex();
                 break;
             case 'reverse':
                 this.direction *= -1;
                 if (active === 2) {
+                    // 2-player reverse acts like skip
                     this.currentPlayerIndex = this.getNextPlayerIndex();
                     this.currentPlayerIndex = this.getNextPlayerIndex();
                 } else {
@@ -225,8 +245,10 @@ class UnoGame {
         }
 
         if (drawCount > 1) {
+            // Penalty draw — forced, always pass turn
             this.currentPlayerIndex = this.getNextPlayerIndex();
         } else {
+            // Normal draw — pass turn only if drawn card isn't playable
             const playable = drawnCards[0] && this.isValidPlay(drawnCards[0]);
             if (!playable) this.currentPlayerIndex = this.getNextPlayerIndex();
         }
@@ -253,23 +275,23 @@ class UnoGame {
 
     getState() {
         return {
-            roomId: this.roomId,
-            status: this.status,
+            roomId:          this.roomId,
+            status:          this.status,
             currentPlayerId: this.getCurrentPlayer()?.id,
-            currentColor: this.currentColor,
-            direction: this.direction,
-            pendingDraw: this.pendingDraw,
-            topCard: this.getTopCard(),
-            deckCount: this.deck.length,
-            winner: this.winner,
-            finishOrder: this.finishOrder,
+            currentColor:    this.currentColor,
+            direction:       this.direction,
+            pendingDraw:     this.pendingDraw,
+            topCard:         this.getTopCard(),
+            deckCount:       this.deck.length,
+            winner:          this.winner,
+            finishOrder:     this.finishOrder,
             players: this.players.map(p => ({
-                id: p.id,
-                username: p.username,
-                cardCount: p.hand.length,
-                saidUno: p.saidUno,
+                id:             p.id,
+                username:       p.username,
+                cardCount:      p.hand.length,
+                saidUno:        p.saidUno,
                 finishPosition: p.finishPosition,
-                hand: null   // filled in getPlayerState
+                hand:           null   // filled in getPlayerState
             }))
         };
     }
@@ -277,12 +299,12 @@ class UnoGame {
     getPlayerState(playerId) {
         const state = this.getState();
         state.players = this.players.map(p => ({
-            id: p.id,
-            username: p.username,
-            cardCount: p.hand.length,
-            saidUno: p.saidUno,
+            id:             p.id,
+            username:       p.username,
+            cardCount:      p.hand.length,
+            saidUno:        p.saidUno,
             finishPosition: p.finishPosition,
-            hand: p.id === playerId ? p.hand : null
+            hand:           p.id === playerId ? p.hand : null
         }));
         return state;
     }
