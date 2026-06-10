@@ -16,22 +16,19 @@ const io = new Server(server, {
 app.use(cors());
 app.use(express.json());
 
-// Neon DB Connection
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }
 });
 
-// In-memory game state (fast access)
-const activeGames = {}; // roomCode -> UnoGame instance
-const socketToPlayer = {}; // socketId -> { playerId, roomCode }
-const roomVoiceStreams = {}; // roomCode -> Set of socketIds
+const activeGames = {};
+const socketToPlayer = {};
+const roomVoiceStreams = {};
 
 // ─── REST ENDPOINTS ──────────────────────────────────────────────────────────
 
 app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date() }));
 
-// Register / login player
 app.post('/api/players', async (req, res) => {
     const { username, avatarColor } = req.body;
     if (!username) return res.status(400).json({ error: 'Username required' });
@@ -49,7 +46,6 @@ app.post('/api/players', async (req, res) => {
     }
 });
 
-// Get player stats
 app.get('/api/players/:id/stats', async (req, res) => {
     try {
         const result = await pool.query(
@@ -63,7 +59,6 @@ app.get('/api/players/:id/stats', async (req, res) => {
     }
 });
 
-// Create room
 app.post('/api/rooms', async (req, res) => {
     const { hostId, maxPlayers } = req.body;
     const code = generateRoomCode();
@@ -79,7 +74,6 @@ app.post('/api/rooms', async (req, res) => {
     }
 });
 
-// Get room info
 app.get('/api/rooms/:code', async (req, res) => {
     try {
         const room = await pool.query(
@@ -103,7 +97,6 @@ app.get('/api/rooms/:code', async (req, res) => {
 io.on('connection', (socket) => {
     console.log(`[Socket] Connected: ${socket.id}`);
 
-    // Join room (also handles rejoining mid-game from GameActivity)
     socket.on('join_room', async ({ roomCode, playerId, username }) => {
         try {
             const roomResult = await pool.query(
@@ -115,17 +108,11 @@ io.on('connection', (socket) => {
             }
             const room = roomResult.rows[0];
 
-            // If game is already playing, this is a socket rejoin (e.g. GameActivity starting)
-            // Just re-join the socket room and send current state — don't touch DB counts
             if (room.status === 'playing') {
                 socket.join(roomCode);
                 socketToPlayer[socket.id] = { playerId, roomCode, username };
-                console.log(`[Room] ${username} rejoined playing room ${roomCode}`);
-
                 const game = activeGames[roomCode];
-                if (game) {
-                    socket.emit('game_state', game.getPlayerState(playerId));
-                }
+                if (game) socket.emit('game_state', game.getPlayerState(playerId));
                 return;
             }
 
@@ -134,7 +121,6 @@ io.on('connection', (socket) => {
                 return;
             }
 
-            // Add player to room in DB
             const seatResult = await pool.query(
                 `SELECT COALESCE(MAX(seat_position), -1) + 1 AS next_seat
                  FROM room_players WHERE room_id = $1`, [room.id]
@@ -158,19 +144,13 @@ io.on('connection', (socket) => {
 
             const players = await getRoomPlayers(room.id);
             io.to(roomCode).emit('room_update', {
-                roomCode,
-                players,
-                hostId: room.host_id,
-                status: room.status
+                roomCode, players, hostId: room.host_id, status: room.status
             });
-
-            console.log(`[Room] ${username} joined ${roomCode} (seat ${seatPos})`);
         } catch (err) {
             socket.emit('error', { message: err.message });
         }
     });
 
-    // Start game (host only)
     socket.on('start_game', async ({ roomCode, playerId }) => {
         try {
             const roomResult = await pool.query(
@@ -194,29 +174,21 @@ io.on('connection', (socket) => {
             await pool.query(
                 "UPDATE rooms SET status = 'playing' WHERE id = $1", [room.id]
             );
-
-            // Create game session record
             await pool.query(
                 'INSERT INTO game_sessions (room_id, game_state) VALUES ($1, $2)',
                 [room.id, JSON.stringify(state)]
             );
 
-            // Send each player their own hand
             const sockets = await io.in(roomCode).fetchSockets();
             for (const s of sockets) {
                 const sp = socketToPlayer[s.id];
-                if (sp) {
-                    s.emit('game_started', game.getPlayerState(sp.playerId));
-                }
+                if (sp) s.emit('game_started', game.getPlayerState(sp.playerId));
             }
-
-            console.log(`[Game] Started in room ${roomCode} with ${playerRows.length} players`);
         } catch (err) {
             socket.emit('error', { message: err.message });
         }
     });
 
-    // Play card
     socket.on('play_card', async ({ roomCode, playerId, cardId, chosenColor }) => {
         const game = activeGames[roomCode];
         if (!game) { socket.emit('error', { message: 'No active game' }); return; }
@@ -226,7 +198,6 @@ io.on('connection', (socket) => {
 
         await logEvent(roomCode, playerId, 'play_card', { cardId, chosenColor });
 
-        // Announce when a player finishes (empties their hand)
         if (result.playerFinished) {
             io.to(roomCode).emit('player_finished', {
                 playerId: result.playerFinished,
@@ -234,7 +205,6 @@ io.on('connection', (socket) => {
             });
         }
 
-        // Game fully over (only 1 active player left)
         if (result.winner && game.status === 'finished') {
             await pool.query(
                 'UPDATE players SET games_won = games_won + 1 WHERE id = $1', [result.winner]
@@ -249,11 +219,10 @@ io.on('connection', (socket) => {
             );
         }
 
-        // Broadcast to all, send hands individually
         await broadcastGameState(roomCode, game, result);
     });
 
-    // Draw card
+    // ── Draw card (auto-draw + auto-play) ────────────────────────────────────
     socket.on('draw_card', async ({ roomCode, playerId }) => {
         const game = activeGames[roomCode];
         if (!game) { socket.emit('error', { message: 'No active game' }); return; }
@@ -261,84 +230,95 @@ io.on('connection', (socket) => {
         const result = game.drawCard(playerId);
         if (!result.success) { socket.emit('error', { message: result.error }); return; }
 
-        await logEvent(roomCode, playerId, 'draw_card', { count: result.drawCount });
+        await logEvent(roomCode, playerId, 'draw_card', {
+            count: result.drawCount,
+            autoPlayed: result.autoPlayed?.id || null
+        });
+
+        // If the drawn card was auto-played, announce it to the room
+        if (result.autoPlayed) {
+            io.to(roomCode).emit('card_auto_played', {
+                playerId,
+                card: result.autoPlayed
+            });
+        }
+
+        // Handle auto-play finishing a player
+        if (result.playerFinished) {
+            io.to(roomCode).emit('player_finished', {
+                playerId: result.playerFinished,
+                position: result.finishPosition
+            });
+        }
+
+        if (result.winner && game.status === 'finished') {
+            await pool.query(
+                'UPDATE players SET games_won = games_won + 1 WHERE id = $1', [result.winner]
+            );
+            await pool.query(
+                `UPDATE players SET games_played = games_played + 1
+                 WHERE id = ANY($1::uuid[])`,
+                [game.players.map(p => p.id)]
+            );
+            await pool.query(
+                "UPDATE rooms SET status = 'finished' WHERE room_code = $1", [roomCode]
+            );
+        }
+
         await broadcastGameState(roomCode, game, result);
     });
 
-    // Say UNO
     socket.on('say_uno', ({ roomCode, playerId }) => {
         const game = activeGames[roomCode];
         if (!game) return;
         const result = game.sayUno(playerId);
-        if (result.success) {
-            io.to(roomCode).emit('uno_called', { playerId });
-        }
+        if (result.success) io.to(roomCode).emit('uno_called', { playerId });
     });
 
-    // Challenge UNO
     socket.on('challenge_uno', async ({ roomCode, challengerId, targetId }) => {
         const game = activeGames[roomCode];
         if (!game) return;
         const result = game.challengeUno(challengerId, targetId);
         io.to(roomCode).emit('uno_challenge', { challengerId, targetId, success: result.success });
-        if (result.success) {
-            await broadcastGameState(roomCode, game, result);
-        }
+        if (result.success) await broadcastGameState(roomCode, game, result);
     });
 
-    // Get current game state (called by GameActivity on connect)
     socket.on('get_game_state', ({ roomCode }) => {
         const sp = socketToPlayer[socket.id];
         const game = activeGames[roomCode];
-        if (game && sp) {
-            socket.emit('game_state', game.getPlayerState(sp.playerId));
-        }
+        if (game && sp) socket.emit('game_state', game.getPlayerState(sp.playerId));
     });
 
-    // ── Voice Chat (WebRTC Signaling) ──────────────────────────────────────
+    // ── Voice Chat ────────────────────────────────────────────────────────────
 
     socket.on('voice_join', ({ roomCode }) => {
-        if (roomVoiceStreams[roomCode]) {
-            roomVoiceStreams[roomCode].add(socket.id);
-        }
+        if (roomVoiceStreams[roomCode]) roomVoiceStreams[roomCode].add(socket.id);
         socket.to(roomCode).emit('voice_peer_joined', { socketId: socket.id });
     });
 
-    socket.on('voice_offer', ({ targetSocketId, offer, roomCode }) => {
-        io.to(targetSocketId).emit('voice_offer', {
-            fromSocketId: socket.id,
-            offer
-        });
+    socket.on('voice_offer', ({ targetSocketId, offer }) => {
+        io.to(targetSocketId).emit('voice_offer', { fromSocketId: socket.id, offer });
     });
 
     socket.on('voice_answer', ({ targetSocketId, answer }) => {
-        io.to(targetSocketId).emit('voice_answer', {
-            fromSocketId: socket.id,
-            answer
-        });
+        io.to(targetSocketId).emit('voice_answer', { fromSocketId: socket.id, answer });
     });
 
     socket.on('voice_ice_candidate', ({ targetSocketId, candidate }) => {
-        io.to(targetSocketId).emit('voice_ice_candidate', {
-            fromSocketId: socket.id,
-            candidate
-        });
+        io.to(targetSocketId).emit('voice_ice_candidate', { fromSocketId: socket.id, candidate });
     });
 
     socket.on('voice_leave', ({ roomCode }) => {
-        if (roomVoiceStreams[roomCode]) {
-            roomVoiceStreams[roomCode].delete(socket.id);
-        }
+        if (roomVoiceStreams[roomCode]) roomVoiceStreams[roomCode].delete(socket.id);
         socket.to(roomCode).emit('voice_peer_left', { socketId: socket.id });
     });
 
-    // ── Disconnect ─────────────────────────────────────────────────────────
+    // ── Disconnect ────────────────────────────────────────────────────────────
 
     socket.on('disconnect', async () => {
         const sp = socketToPlayer[socket.id];
         if (sp) {
             const { playerId, roomCode } = sp;
-            // Mark disconnected in DB
             await pool.query(
                 `UPDATE room_players rp SET is_connected = false
                  FROM rooms r WHERE r.id = rp.room_id
@@ -346,12 +326,9 @@ io.on('connection', (socket) => {
                 [roomCode, playerId]
             ).catch(() => {});
 
-            if (roomVoiceStreams[roomCode]) {
-                roomVoiceStreams[roomCode].delete(socket.id);
-            }
+            if (roomVoiceStreams[roomCode]) roomVoiceStreams[roomCode].delete(socket.id);
             socket.to(roomCode).emit('player_disconnected', { playerId });
             delete socketToPlayer[socket.id];
-            console.log(`[Socket] Disconnected: ${socket.id} (${sp.username})`);
         }
     });
 });
