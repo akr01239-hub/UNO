@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#1A0033"
+    android:padding="24dp"
+    android:gravity="center_horizontal">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="LOBBY"
+        android:textSize="32sp"
+        android:textStyle="bold"
+        android:textColor="#FFD700"
+        android:layout_marginBottom="8dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:layout_marginBottom="24dp">
+
+        <TextView
+            android:id="@+id/tvRoomCode"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Room: XXXXXX"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFF"
+            android:layout_marginEnd="12dp" />
+
+        <Button
+            android:id="@+id/btnCopyCode"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Copy"
+            android:textSize="12sp"
+            android:backgroundTint="#444466" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvPlayerCount"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="0/6 Players"
+        android:textColor="#AAFFFFFF"
+        android:textSize="16sp"
+        android:layout_marginBottom="12dp" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvLobbyPlayers"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginBottom="24dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Share the room code with friends!"
+        android:textColor="#88FFFFFF"
+        android:textSize="13sp"
+        android:layout_marginBottom="16dp" />
+
+    <Button
+        android:id="@+id/btnStart"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:text="START GAME"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:backgroundTint="#43A047"
+        android:enabled="false" />
+
+</LinearLayout>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.UNO" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">#E53935</item>
+        <item name="colorPrimaryVariant">#B71C1C</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorSecondary">#FFD700</item>
+        <item name="colorOnSecondary">#000000</item>
+        <item name="android:windowBackground">#1A0033</item>
+        <item name="android:statusBarColor">#0D001A</item>
+        <item name="android:navigationBarColor">#0D001A</item>
+        <item name="android:textColorHint">#99FFFFFF</item>
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="materialButtonStyle">@style/Widget.MaterialComponents.Button.UnelevatedButton</item>
+    </style>
+</resources>

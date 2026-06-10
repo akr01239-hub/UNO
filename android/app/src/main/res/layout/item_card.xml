@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- item_card.xml -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="80dp"
+    android:layout_height="120dp"
+    android:layout_marginHorizontal="4dp">
+
+    <com.uno.game.ui.game.UnoCardView
+        android:id="@+id/unoCard"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+</FrameLayout>

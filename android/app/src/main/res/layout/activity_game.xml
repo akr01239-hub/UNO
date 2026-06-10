@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#1A0033">
+
+    <!-- Other Players - Top -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvPlayers"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="8dp"
+        android:layout_marginHorizontal="8dp" />
+
+    <!-- Turn Indicator -->
+    <TextView
+        android:id="@+id/tvTurnIndicator"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="YOUR TURN!"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:textColor="#FFD700"
+        android:padding="8dp"
+        app:layout_constraintTop_toBottomOf="@id/rvPlayers"
+        app:layout_constraintStart_toStartOf="parent"
+        android:layout_marginStart="16dp" />
+
+    <!-- Direction + Deck Count -->
+    <TextView
+        android:id="@+id/tvDirection"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="#AAFFFFFF"
+        android:textSize="13sp"
+        app:layout_constraintTop_toBottomOf="@id/rvPlayers"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginEnd="16dp"
+        android:layout_marginTop="4dp" />
+
+    <!-- Game Table Center -->
+    <LinearLayout
+        android:id="@+id/layoutCenter"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:layout_marginVertical="8dp"
+        app:layout_constraintTop_toBottomOf="@id/tvTurnIndicator"
+        app:layout_constraintBottom_toTopOf="@id/tvDeckCount"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <!-- Deck pile (draw) -->
+        <LinearLayout
+            android:layout_width="80dp"
+            android:layout_height="120dp"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="#2E004F"
+            android:layout_marginEnd="24dp">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🃏"
+                android:textSize="32sp" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="DRAW"
+                android:textColor="#AAFFFFFF"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <!-- Top discard card -->
+        <com.uno.game.ui.game.UnoCardView
+            android:id="@+id/cardTop"
+            android:layout_width="80dp"
+            android:layout_height="120dp" />
+
+    </LinearLayout>
+
+    <!-- Current Color indicator -->
+    <View
+        android:id="@+id/tvCurrentColor"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="@drawable/circle_shape"
+        android:layout_margin="8dp"
+        app:layout_constraintTop_toTopOf="@id/layoutCenter"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Deck Count -->
+    <TextView
+        android:id="@+id/tvDeckCount"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="#AAFFFFFF"
+        android:textSize="12sp"
+        app:layout_constraintBottom_toTopOf="@id/rvHand"
+        app:layout_constraintStart_toStartOf="parent"
+        android:layout_marginStart="16dp"
+        android:layout_marginBottom="4dp" />
+
+    <!-- My Hand -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvHand"
+        android:layout_width="0dp"
+        android:layout_height="130dp"
+        app:layout_constraintBottom_toTopOf="@id/layoutButtons"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginBottom="8dp"
+        android:paddingHorizontal="8dp"
+        android:clipToPadding="false" />
+
+    <!-- Buttons Row -->
+    <LinearLayout
+        android:id="@+id/layoutButtons"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="8dp"
+        android:gravity="center"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <Button
+            android:id="@+id/btnDraw"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="2"
+            android:text="Draw Card"
+            android:textSize="13sp"
+            android:layout_marginEnd="6dp" />
+
+        <Button
+            android:id="@+id/btnUno"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1.5"
+            android:text="UNO!"
+            android:textStyle="bold"
+            android:backgroundTint="#FF5722"
+            android:textSize="16sp"
+            android:visibility="gone"
+            android:layout_marginEnd="6dp" />
+
+        <ImageButton
+            android:id="@+id/btnVoice"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@android:drawable/ic_btn_speak_now"
+            android:backgroundTint="#4CAF50"
+            android:layout_marginEnd="6dp" />
+
+        <ImageButton
+            android:id="@+id/btnMuteSound"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@android:drawable/ic_lock_silent_mode_off"
+            android:backgroundTint="#607D8B" />
+
+    </LinearLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>
