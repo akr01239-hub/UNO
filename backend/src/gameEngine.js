@@ -108,14 +108,27 @@ class UnoGame {
         return this.discardPile[this.discardPile.length - 1];
     }
 
-    isValidPlay(card) {
+    // ── Official UNO rules for valid plays ───────────────────────────────────
+    isValidPlay(card, playerHand = null) {
         const top = this.getTopCard();
-        if (card.color === 'wild') return true;
+
+        // During a pending draw stack (+2 or +4), only matching stack cards are valid
         if (this.pendingDraw > 0) {
             if (top.value === 'draw2')      return card.value === 'draw2';
             if (top.value === 'wild_draw4') return card.value === 'wild_draw4';
             return false;
         }
+
+        // Wild +4 official rule: can only play it if you have NO card matching current color
+        // (We enforce this server-side; client shows it as playable for UX, server validates)
+        if (card.value === 'wild_draw4' && playerHand) {
+            const hasMatchingColor = playerHand.some(
+                c => c.id !== card.id && c.color === this.currentColor
+            );
+            if (hasMatchingColor) return false; // illegal play — must play color match first
+        }
+
+        if (card.color === 'wild') return true;  // wild (non-+4) always playable
         return card.color === this.currentColor || card.value === top.value;
     }
 
@@ -129,8 +142,9 @@ class UnoGame {
         if (cardIndex === -1) return { success: false, error: 'Card not in hand' };
 
         const card = player.hand[cardIndex];
-        if (!this.isValidPlay(card)) return { success: false, error: 'Invalid play' };
+        if (!this.isValidPlay(card, player.hand)) return { success: false, error: 'Invalid play' };
 
+        // Wild +4 played illegally without challenge — still allow (challenge is opponent's job)
         player.hand.splice(cardIndex, 1);
         player.saidUno = false;
         this.discardPile.push(card);
@@ -191,6 +205,7 @@ class UnoGame {
             case 'reverse':
                 this.direction *= -1;
                 if (active === 2) {
+                    // 2-player reverse = skip
                     this.currentPlayerIndex = this.getNextPlayerIndex();
                     this.currentPlayerIndex = this.getNextPlayerIndex();
                 } else {
@@ -212,7 +227,9 @@ class UnoGame {
     }
 
     // ── Draw card ─────────────────────────────────────────────────────────────
-    // Returns drawnCards + autoPlayed (the card if it was auto-played, else null)
+    // Normal draw: draw 1. If it matches AND is not a wild, auto-play it.
+    // Wilds are never auto-played (need color choice from player).
+    // Penalty draw (+2/+4): always draw and pass turn.
     drawCard(playerId) {
         const player = this.players.find(p => p.id === playerId);
         if (!player) return { success: false, error: 'Player not found' };
@@ -231,20 +248,20 @@ class UnoGame {
         }
 
         if (isPenalty) {
-            // Penalty draw (+2 / +4) — always pass turn, never auto-play
+            // Penalty draw — always pass turn, never auto-play
             this.currentPlayerIndex = this.getNextPlayerIndex();
             return { success: true, drawnCards, drawCount, autoPlayed: null, state: this.getState() };
         }
 
-        // Normal draw (1 card) — auto-play it if it matches, else pass turn
+        // Normal draw (1 card):
+        // Auto-play ONLY if it matches AND is not a wild (wild needs color choice)
         const drawnCard = drawnCards[0];
-        if (drawnCard && this.isValidPlay(drawnCard)) {
-            // Auto-play the drawn card immediately
+        if (drawnCard && !drawnCard.color === 'wild' && this.isValidPlay(drawnCard, player.hand)) {
+            // auto-play
             player.hand.splice(player.hand.indexOf(drawnCard), 1);
             player.saidUno = false;
             this.discardPile.push(drawnCard);
 
-            // Check if player finished by auto-playing
             if (player.hand.length === 0) {
                 const position = this.finishOrder.length + 1;
                 player.finishPosition = position;
@@ -279,7 +296,7 @@ class UnoGame {
             };
         }
 
-        // Drawn card is not playable — pass turn
+        // Not playable or is a wild — pass turn
         this.currentPlayerIndex = this.getNextPlayerIndex();
         return { success: true, drawnCards, drawCount, autoPlayed: null, state: this.getState() };
     }
@@ -299,6 +316,23 @@ class UnoGame {
             return { success: false, error: 'Challenge failed' };
         for (let i = 0; i < 2; i++) target.hand.push(this.drawFromDeck());
         return { success: true, penalized: targetId, state: this.getState() };
+    }
+
+    // ── Challenge wild_draw4 (official rule) ──────────────────────────────────
+    // Next player can challenge: if challenger proves the +4 player HAD a matching
+    // color card, the +4 player draws 4 instead. Otherwise challenger draws 6.
+    // NOTE: We can't verify the hand after the fact (card already played), so we
+    // trust the server-side validation in isValidPlay. This is tracked optionally.
+    challengeDraw4(challengerId, targetId) {
+        const challenger = this.players.find(p => p.id === challengerId);
+        const target = this.players.find(p => p.id === targetId);
+        if (!challenger || !target) return { success: false, error: 'Player not found' };
+        // Since we enforce the rule server-side, the challenge always fails (play was legal)
+        // Give challenger 6 cards as penalty
+        for (let i = 0; i < 6; i++) challenger.hand.push(this.drawFromDeck());
+        this.pendingDraw = 0;
+        this.currentPlayerIndex = this.getNextPlayerIndex();
+        return { success: true, challengeFailed: true, penalized: challengerId, state: this.getState() };
     }
 
     getState() {
