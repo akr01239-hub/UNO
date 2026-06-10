@@ -226,8 +226,16 @@ io.on('connection', (socket) => {
 
         await logEvent(roomCode, playerId, 'play_card', { cardId, chosenColor });
 
-        if (result.winner) {
-            // Update stats
+        // Announce when a player finishes (empties their hand)
+        if (result.playerFinished) {
+            io.to(roomCode).emit('player_finished', {
+                playerId: result.playerFinished,
+                position: result.finishPosition
+            });
+        }
+
+        // Game fully over (only 1 active player left)
+        if (result.winner && game.status === 'finished') {
             await pool.query(
                 'UPDATE players SET games_won = games_won + 1 WHERE id = $1', [result.winner]
             );
