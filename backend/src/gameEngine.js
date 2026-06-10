@@ -17,16 +17,15 @@ class UnoGame {
         this.players = players.map(p => ({ ...p, hand: [], saidUno: false, finishPosition: null }));
         this.deck = [];
         this.discardPile = [];
-        this.currentPlayerIndex = 0;   // index into activePlayers array
+        this.currentPlayerIndex = 0;
         this.direction = 1;
         this.status = 'waiting';
         this.currentColor = null;
         this.pendingDraw = 0;
-        this.winner = null;            // first-place player id
-        this.finishOrder = [];         // [1st, 2nd, 3rd ...] player ids
+        this.winner = null;
+        this.finishOrder = [];
     }
 
-    // ── Active players only (not yet finished) ────────────────────────────────
     get activePlayers() {
         return this.players.filter(p => p.finishPosition === null);
     }
@@ -37,7 +36,6 @@ class UnoGame {
         return active[this.currentPlayerIndex % active.length];
     }
 
-    // Returns the index (in activePlayers) of the next player
     getNextPlayerIndex(from = this.currentPlayerIndex) {
         const active = this.activePlayers.length;
         if (active === 0) return 0;
@@ -137,24 +135,18 @@ class UnoGame {
         player.saidUno = false;
         this.discardPile.push(card);
 
-        // ── Player finished! ───────────────────────────────────────────────────
         if (player.hand.length === 0) {
             const position = this.finishOrder.length + 1;
             player.finishPosition = position;
             this.finishOrder.push(playerId);
             if (!this.winner) this.winner = playerId;
 
-            // Apply color change for wild cards even when finishing
             if (card.color === 'wild') {
                 this.currentColor = chosenColor || 'red';
             }
 
-            // FIX: After removing this player from activePlayers, clamp the index
-            // so it points to the correct NEXT player (not the same slot which is
-            // now a different person, or out of range).
-            const remaining = this.activePlayers;   // player already has finishPosition set
+            const remaining = this.activePlayers;
 
-            // Game fully over — only 1 active player left (the loser)
             if (remaining.length <= 1) {
                 if (remaining.length === 1) {
                     const lastPlayer = remaining[0];
@@ -171,12 +163,6 @@ class UnoGame {
                 };
             }
 
-            // FIX: Advance to the next player correctly.
-            // currentPlayerIndex was pointing at the finishing player's slot.
-            // After removal the array shrank, so we must NOT just mod — instead
-            // we advance by the direction so the correct next person gets the turn.
-            // We keep the same index value which now naturally lands on the person
-            // who was AFTER the finishing player (array shifted left).
             this.currentPlayerIndex = this.currentPlayerIndex % remaining.length;
 
             return {
@@ -187,7 +173,6 @@ class UnoGame {
             };
         }
 
-        // Normal play — apply card effects and advance turn
         const effects = this.applyCardEffect(card, chosenColor);
         const unoAlert = player.hand.length === 1;
         return { success: true, card, effects, unoAlert, state: this.getState() };
@@ -200,14 +185,12 @@ class UnoGame {
 
         switch (card.value) {
             case 'skip':
-                // Skip next player: advance twice
                 this.currentPlayerIndex = this.getNextPlayerIndex();
                 this.currentPlayerIndex = this.getNextPlayerIndex();
                 break;
             case 'reverse':
                 this.direction *= -1;
                 if (active === 2) {
-                    // 2-player reverse acts like skip
                     this.currentPlayerIndex = this.getNextPlayerIndex();
                     this.currentPlayerIndex = this.getNextPlayerIndex();
                 } else {
@@ -228,13 +211,16 @@ class UnoGame {
         return effects;
     }
 
+    // ── Draw card ─────────────────────────────────────────────────────────────
+    // Returns drawnCards + autoPlayed (the card if it was auto-played, else null)
     drawCard(playerId) {
         const player = this.players.find(p => p.id === playerId);
         if (!player) return { success: false, error: 'Player not found' };
         if (this.getCurrentPlayer()?.id !== playerId)
             return { success: false, error: 'Not your turn' };
 
-        const drawCount = this.pendingDraw > 0 ? this.pendingDraw : 1;
+        const isPenalty = this.pendingDraw > 0;
+        const drawCount = isPenalty ? this.pendingDraw : 1;
         this.pendingDraw = 0;
         const drawnCards = [];
 
@@ -244,16 +230,58 @@ class UnoGame {
             drawnCards.push(card);
         }
 
-        if (drawCount > 1) {
-            // Penalty draw — forced, always pass turn
+        if (isPenalty) {
+            // Penalty draw (+2 / +4) — always pass turn, never auto-play
             this.currentPlayerIndex = this.getNextPlayerIndex();
-        } else {
-            // Normal draw — pass turn only if drawn card isn't playable
-            const playable = drawnCards[0] && this.isValidPlay(drawnCards[0]);
-            if (!playable) this.currentPlayerIndex = this.getNextPlayerIndex();
+            return { success: true, drawnCards, drawCount, autoPlayed: null, state: this.getState() };
         }
 
-        return { success: true, drawnCards, drawCount, state: this.getState() };
+        // Normal draw (1 card) — auto-play it if it matches, else pass turn
+        const drawnCard = drawnCards[0];
+        if (drawnCard && this.isValidPlay(drawnCard)) {
+            // Auto-play the drawn card immediately
+            player.hand.splice(player.hand.indexOf(drawnCard), 1);
+            player.saidUno = false;
+            this.discardPile.push(drawnCard);
+
+            // Check if player finished by auto-playing
+            if (player.hand.length === 0) {
+                const position = this.finishOrder.length + 1;
+                player.finishPosition = position;
+                this.finishOrder.push(playerId);
+                if (!this.winner) this.winner = playerId;
+                const remaining = this.activePlayers;
+                if (remaining.length <= 1) {
+                    if (remaining.length === 1) {
+                        const last = remaining[0];
+                        last.finishPosition = this.finishOrder.length + 1;
+                        this.finishOrder.push(last.id);
+                    }
+                    this.status = 'finished';
+                }
+                return {
+                    success: true, drawnCards, drawCount,
+                    autoPlayed: drawnCard,
+                    playerFinished: playerId,
+                    finishPosition: position,
+                    winner: this.winner,
+                    state: this.getState()
+                };
+            }
+
+            const effects = this.applyCardEffect(drawnCard, null);
+            return {
+                success: true, drawnCards, drawCount,
+                autoPlayed: drawnCard,
+                effects,
+                unoAlert: player.hand.length === 1,
+                state: this.getState()
+            };
+        }
+
+        // Drawn card is not playable — pass turn
+        this.currentPlayerIndex = this.getNextPlayerIndex();
+        return { success: true, drawnCards, drawCount, autoPlayed: null, state: this.getState() };
     }
 
     sayUno(playerId) {
@@ -291,7 +319,7 @@ class UnoGame {
                 cardCount:      p.hand.length,
                 saidUno:        p.saidUno,
                 finishPosition: p.finishPosition,
-                hand:           null   // filled in getPlayerState
+                hand:           null
             }))
         };
     }
