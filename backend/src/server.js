@@ -103,7 +103,7 @@ app.get('/api/rooms/:code', async (req, res) => {
 io.on('connection', (socket) => {
     console.log(`[Socket] Connected: ${socket.id}`);
 
-    // Join room
+    // Join room (also handles rejoining mid-game from GameActivity)
     socket.on('join_room', async ({ roomCode, playerId, username }) => {
         try {
             const roomResult = await pool.query(
@@ -114,10 +114,21 @@ io.on('connection', (socket) => {
                 return;
             }
             const room = roomResult.rows[0];
-            if (room.status !== 'waiting') {
-                socket.emit('error', { message: 'Game already started' });
+
+            // If game is already playing, this is a socket rejoin (e.g. GameActivity starting)
+            // Just re-join the socket room and send current state — don't touch DB counts
+            if (room.status === 'playing') {
+                socket.join(roomCode);
+                socketToPlayer[socket.id] = { playerId, roomCode, username };
+                console.log(`[Room] ${username} rejoined playing room ${roomCode}`);
+
+                const game = activeGames[roomCode];
+                if (game) {
+                    socket.emit('game_state', game.getPlayerState(playerId));
+                }
                 return;
             }
+
             if (room.current_players >= room.max_players) {
                 socket.emit('error', { message: 'Room is full' });
                 return;
@@ -264,6 +275,15 @@ io.on('connection', (socket) => {
         io.to(roomCode).emit('uno_challenge', { challengerId, targetId, success: result.success });
         if (result.success) {
             await broadcastGameState(roomCode, game, result);
+        }
+    });
+
+    // Get current game state (called by GameActivity on connect)
+    socket.on('get_game_state', ({ roomCode }) => {
+        const sp = socketToPlayer[socket.id];
+        const game = activeGames[roomCode];
+        if (game && sp) {
+            socket.emit('game_state', game.getPlayerState(sp.playerId));
         }
     });
 
